@@ -31,6 +31,7 @@
 namespace livegraph
 {
     class EdgeIterator;
+    class EdgeIteratorVersion;
     class Transaction;
 
     class Graph
@@ -123,6 +124,7 @@ namespace livegraph
         constexpr static size_t COMPACT_EDGE_BLOCK_THRESHOLD = 5; // at least compact 20% edges
 
         friend class EdgeIterator;
+        friend class EdgeIteratorVersion;
         friend class Transaction;
     };
 } // namespace livegraph

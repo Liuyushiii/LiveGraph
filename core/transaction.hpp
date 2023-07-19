@@ -101,11 +101,17 @@ namespace livegraph
         bool del_vertex(vertex_t vertex_id, bool recycle = false);
 
         void put_edge(vertex_t src, label_t label, vertex_t dst, std::string_view edge_data, bool force_insert = false);
+        void put_edge_with_version(vertex_t src, label_t label, vertex_t dst, std::string_view edge_data, int version, bool force_insert = false);
         bool del_edge(vertex_t src, label_t label, vertex_t dst);
+
+        // 统计各索引占用空间
+        void count_size(vertex_t max_vertex_id);
 
         std::string_view get_vertex(vertex_t vertex_id);
         std::string_view get_edge(vertex_t src, label_t label, vertex_t dst);
+        std::vector<std::string_view> get_edge_with_version(vertex_t src, label_t label, vertex_t dst, timestamp_t start, timestamp_t end);
         EdgeIterator get_edges(vertex_t src, label_t label, bool reverse = false);
+        EdgeIteratorVersion get_edges_with_version(vertex_t src, label_t label, timestamp_t start, timestamp_t end, bool reverse = false);
 
         timestamp_t commit(bool wait_visable = true);
         void abort();
@@ -215,6 +221,8 @@ namespace livegraph
 
         std::pair<EdgeEntry *, char *>
         find_edge(vertex_t dst, EdgeBlockHeader *edge_block, size_t num_entries, size_t data_length);
+        std::vector<std::pair<EdgeEntry *, char *>>
+        find_edge_with_version(vertex_t dst, EdgeBlockHeader *edge_block, size_t num_entries, size_t data_length, timestamp_t start, timestamp_t end);
 
         uintptr_t locate_edge_block(vertex_t src, label_t label);
 

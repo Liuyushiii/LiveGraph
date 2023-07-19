@@ -155,4 +155,165 @@ namespace livegraph
         EdgeEntry *entries_cursor;
         char *data_cursor;
     };
+
+    class EdgeIteratorVersion
+    {
+    public:
+        EdgeIteratorVersion(EdgeEntry *_entries,
+                     char *_data,
+                     size_t _num_entries,
+                     size_t _data_length,
+                     timestamp_t _read_epoch_id,
+                     timestamp_t _local_txn_id,
+                     timestamp_t _start_version,
+                     timestamp_t _end_version,
+                     bool _reverse)
+            : entries(_entries),
+              data(_data),
+              num_entries(_num_entries),
+              data_length(_data_length),
+              read_epoch_id(_read_epoch_id),
+              local_txn_id(_local_txn_id),
+              start_version(_start_version),
+              end_version(_end_version),
+              reverse(_reverse)
+        {
+            if (!reverse)
+            {
+                entries_cursor = entries - num_entries; // at the begining
+                data_cursor = data + data_length;       // at the end
+            }
+            else
+            {
+                entries_cursor = entries; // at the end
+                data_cursor = data;       // at the begining
+            }
+
+            if (!reverse)
+            {
+                while (valid())
+                {
+                    // if (cmp_timestamp(entries_cursor->get_creation_time_pointer(), read_epoch_id, local_txn_id) <= 0 &&
+                    //     cmp_timestamp(entries_cursor->get_deletion_time_pointer(), read_epoch_id, local_txn_id) > 0)
+                    // {
+                    //     break;
+                    // }
+                    if (cmp_timestamp(entries_cursor->get_version_pointer(), start_version) >= 0 &&
+                        cmp_timestamp(entries_cursor->get_version_pointer(), end_version) <= 0)
+                    {
+                        break;
+                    }
+                    data_cursor -= entries_cursor->get_length();
+                    entries_cursor++;
+                }
+            }
+            else
+            {
+                while (valid())
+                {
+                    if (cmp_timestamp((entries_cursor - 1)->get_creation_time_pointer(), read_epoch_id, local_txn_id) <=
+                            0 &&
+                        cmp_timestamp((entries_cursor - 1)->get_deletion_time_pointer(), read_epoch_id, local_txn_id) >
+                            0)
+                    {
+                        break;
+                    }
+                    data_cursor += (entries_cursor - 1)->get_length();
+                    entries_cursor--;
+                }
+            }
+        }
+
+        EdgeIteratorVersion(const EdgeIteratorVersion &) = default;
+
+        EdgeIteratorVersion(EdgeIteratorVersion &&) = default;
+
+        bool valid() const
+        {
+            if (!reverse)
+                return !(entries_cursor == entries);
+            else
+                return !(entries_cursor == entries - num_entries);
+        }
+
+        void next()
+        {
+            if (!reverse)
+            {
+                while (valid())
+                {
+                    data_cursor -= entries_cursor->get_length();
+                    entries_cursor++;
+                    // if (cmp_timestamp(entries_cursor->get_creation_time_pointer(), read_epoch_id, local_txn_id) <= 0 &&
+                    //     cmp_timestamp(entries_cursor->get_deletion_time_pointer(), read_epoch_id, local_txn_id) > 0)
+                    if (cmp_timestamp(entries_cursor->get_version_pointer(), start_version) >= 0 &&
+                        cmp_timestamp(entries_cursor->get_version_pointer(), end_version) <= 0)
+                    {
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                while (valid())
+                {
+                    data_cursor += (entries_cursor - 1)->get_length();
+                    entries_cursor--;
+                    if (cmp_timestamp((entries_cursor - 1)->get_creation_time_pointer(), read_epoch_id, local_txn_id) <=
+                            0 &&
+                        cmp_timestamp((entries_cursor - 1)->get_deletion_time_pointer(), read_epoch_id, local_txn_id) >
+                            0)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        vertex_t dst_id() const
+        {
+            if (!valid())
+                // return Graph::VERTEX_TOMBSTONE;
+                return 18446744073709551615UL;
+            if (!reverse)
+                return entries_cursor->get_dst();
+            else
+                return (entries_cursor - 1)->get_dst();
+        }
+
+        timestamp_t version() const
+        {
+            if (!valid())
+                // return Graph::VERTEX_TOMBSTONE;
+                return -1;
+            if (!reverse)
+                return entries_cursor->get_version();
+            else
+                return (entries_cursor - 1)->get_version();
+        }
+
+        std::string_view edge_data() const
+        {
+            if (!valid())
+                return std::string_view();
+            if (!reverse)
+                return std::string_view(data_cursor - entries_cursor->get_length(), entries_cursor->get_length());
+            else
+                return std::string_view(data_cursor, (entries_cursor - 1)->get_length());
+        }
+
+    private:
+        EdgeEntry *entries;
+        char *data;
+        size_t num_entries;
+        size_t data_length;
+        timestamp_t read_epoch_id;
+        timestamp_t local_txn_id;
+        bool reverse;
+        EdgeEntry *entries_cursor;
+        char *data_cursor;
+        timestamp_t start_version;
+        timestamp_t end_version;
+    };
+
 } // namespace livegraph

@@ -24,6 +24,7 @@ namespace livegraph
     class Graph;
     class Transaction;
     class EdgeIterator;
+    class EdgeIteratorVersion;
 } // namespace livegraph
 
 namespace lg
@@ -34,6 +35,7 @@ namespace lg
     using timestamp_t = int64_t;
 
     class EdgeIterator;
+    class EdgeIteratorVersion;
     class Transaction;
 
     class Graph
@@ -83,6 +85,7 @@ namespace lg
         std::string_view get_vertex(vertex_t vertex_id);
         std::string_view get_edge(vertex_t src, label_t label, vertex_t dst);
         EdgeIterator get_edges(vertex_t src, label_t label, bool reverse = false);
+        EdgeIteratorVersion get_edges_with_version(vertex_t src, label_t label, timestamp_t start, timestamp_t end, bool reverse = false);
 
         timestamp_t commit(bool wait_visable = true);
         void abort();
@@ -106,4 +109,18 @@ namespace lg
         const std::unique_ptr<livegraph::EdgeIterator> iter;
     };
 
+    class EdgeIteratorVersion
+    {
+    public:
+        EdgeIteratorVersion(std::unique_ptr<livegraph::EdgeIteratorVersion> _iter);
+        ~EdgeIteratorVersion();
+
+        bool valid() const;
+        void next();
+        vertex_t dst_id() const;
+        std::string_view edge_data() const;
+
+    private:
+        const std::unique_ptr<livegraph::EdgeIteratorVersion> iter;
+    };
 } // namespace lg

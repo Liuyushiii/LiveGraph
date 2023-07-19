@@ -37,10 +37,11 @@ include_directories(${PROJECT_SOURCE_DIR})
 
 add_library(corelib STATIC
     src/graph.cpp
-    src/transaction.cpp)
+    src/transaction.cpp
+    core/transaction.hpp)
 set_property(TARGET corelib PROPERTY POSITION_INDEPENDENT_CODE ON)
 
-add_library(livegraph SHARED bind/livegraph.cpp src/graph.cpp src/transaction.cpp)
+add_library(livegraph SHARED bind/livegraph.cpp src/graph.cpp src/transaction.cpp core/transaction.hpp)
 target_link_libraries(livegraph corelib)
 install(TARGETS livegraph DESTINATION lib)
 install(FILES bind/livegraph.hpp DESTINATION include)
@@ -66,3 +67,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
     include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
     doctest_discover_tests(tests)
 endif()
+
+# add_executable(c_test "test/size_to_order_test.cpp")
+add_executable(livegraph_test "test/load_usdt.cpp")
+target_link_libraries(livegraph_test corelib)

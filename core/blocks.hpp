@@ -212,6 +212,12 @@ namespace livegraph
 
         void set_deletion_time(timestamp_t deletion_time) { this->deletion_time = deletion_time; }
 
+        timestamp_t get_version() const { return version; }
+
+        timestamp_t *get_version_pointer() { return &version; }
+
+        void set_version(timestamp_t version) { this->version = version; }
+
         uint16_t get_length() const { return length; }
 
         void set_length(uint16_t length) { this->length = length; }
@@ -222,6 +228,7 @@ namespace livegraph
         uint32_t dst_low;
         timestamp_t creation_time;
         timestamp_t deletion_time;
+        timestamp_t version;
     };
 
     class EdgeBlockHeader : public N2OBlockHeader
@@ -391,6 +398,6 @@ namespace livegraph
     static_assert(sizeof(VertexBlockHeader) == 32);
     static_assert(sizeof(EdgeLabelEntry) == 16);
     static_assert(sizeof(EdgeLabelBlockHeader) == 32);
-    static_assert(sizeof(EdgeEntry) == 24);
+    static_assert(sizeof(EdgeEntry) == 32);
     static_assert(sizeof(EdgeBlockHeader) == 48);
 } // namespace livegraph

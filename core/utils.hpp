@@ -16,7 +16,7 @@
 #pragma once
 
 #include <string>
-
+#include <iostream>
 #include "types.hpp"
 
 namespace livegraph
@@ -36,6 +36,7 @@ namespace livegraph
 
     inline int cmp_timestamp(const timestamp_t *xp, timestamp_t y) // y > 0
     {
+        // std::cout << "compare " << *xp << " with " << y << std::endl;
         timestamp_t x = *xp;
         if (x < 0)
             return 1;

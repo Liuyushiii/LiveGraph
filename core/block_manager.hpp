@@ -130,12 +130,23 @@ namespace livegraph
             }
         }
 
+        /**
+         * 将给定的块指针转换为指定类型的指针。
+         *
+         * @tparam T 指针类型
+         * @param block 块指针
+         * @return 转换后的指定类型指针
+         */
         template <typename T> inline T *convert(uintptr_t block)
         {
+            // 如果块指针为 NULLPOINTER，则返回空指针
             if (__builtin_expect((block == NULLPOINTER), 0))
                 return nullptr;
+
+            // 将块指针转换为指定类型的指针并返回
             return reinterpret_cast<T *>(reinterpret_cast<char *>(data) + block);
         }
+
 
     private:
         const size_t capacity;

@@ -19,36 +19,25 @@
 
 using namespace livegraph;
 
-/**
- * 创建一个新的顶点。
- * @param use_recycled_vertex 指定是否使用回收的顶点 ID。
- * @return 返回新的顶点 ID。
- */
 vertex_t Transaction::new_vertex(bool use_recycled_vertex)
 {
     check_valid();
     check_writable();
 
     vertex_t vertex_id;
-
-    // 如果不是批量更新事务且回收顶点 ID 缓存不为空，则从中取出一个顶点 ID。
     if (!batch_update && recycled_vertex_cache.size())
     {
         vertex_id = recycled_vertex_cache.front();
         recycled_vertex_cache.pop_front();
     }
-    // 如果不使用回收的顶点 ID 或者无法获取到，则分配一个新的顶点 ID。
     else if (!use_recycled_vertex || (!graph.recycled_vertex_ids.try_pop(vertex_id)))
     {
         vertex_id = graph.vertex_id.fetch_add(1, std::memory_order_relaxed);
     }
-
-    // 对顶点加锁、设置顶点指针和边标签指针为空。
     graph.vertex_futexes[vertex_id].clear();
     graph.vertex_ptrs[vertex_id] = graph.block_manager.NULLPOINTER;
     graph.edge_label_ptrs[vertex_id] = graph.block_manager.NULLPOINTER;
 
-    // 如果不是批量更新事务，则将新顶点 ID 加入缓存中，并记录 WAL 日志。
     if (!batch_update)
     {
         new_vertex_cache.emplace_back(vertex_id);
@@ -56,80 +45,44 @@ vertex_t Transaction::new_vertex(bool use_recycled_vertex)
         wal_append(OPType::NewVertex);
         wal_append(vertex_id);
     }
+
     return vertex_id;
 }
 
-
-/**
- * 该方法将数据存储在指定的顶点中。
- *
- * @param vertex_id 顶点id
- * @param data 存储的数据
- */
 void Transaction::put_vertex(vertex_t vertex_id, std::string_view data)
 {
-    // 检查当前事务是否有效
     check_valid();
-    
-    // 检查当前事务是否可写
     check_writable();
-    
-    // 检查给定的顶点id是否有效
     check_vertex_id(vertex_id);
-    
-    // 用于记录顶点之前的指针
+
     uintptr_t prev_pointer;
-    
-    // 如果是批量更新
     if (batch_update)
     {
-        // 对于该顶点获取独占锁
         graph.vertex_futexes[vertex_id].lock();
-        
-        // 记录顶点之前的指针
         prev_pointer = graph.vertex_ptrs[vertex_id];
     }
     else
     {
-        // 如果不是批量更新，则确保在访问该顶点之前已经获取了该顶点的锁
         ensure_vertex_lock(vertex_id);
-        
-        // 在缓存中查找该顶点的指针
         auto cache_iter = vertex_ptr_cache.find(vertex_id);
-        
-        // 如果找到了，则使用之前缓存的指针
-        if (cache_iter != vertex_ptr_cache.end()) {
-            // std::cout << "from cache" << std::endl;
+        if (cache_iter != vertex_ptr_cache.end())
             prev_pointer = cache_iter->second;
-        }
-        // 如果没有找到，则确保该顶点不存在冲突，然后使用图中的指针
         else
         {
-            // std::cout << "not from cache" << std::endl;
             ensure_no_confict(vertex_id);
             prev_pointer = graph.vertex_ptrs[vertex_id];
         }
     }
-    
-    // 计算存储顶点数据所需的块的大小
+
     auto size = sizeof(VertexBlockHeader) + data.size();
-    
-    // 将块的大小转换为对应的阶数
     auto order = size_to_order(size);
-    
-    // 在块管理器中为该块分配空间
     auto pointer = graph.block_manager.alloc(order);
-    
-    // 将指针转换为VertexBlockHeader类型的指针
+
     auto vertex_block = graph.block_manager.convert<VertexBlockHeader>(pointer);
-    
-    // 使用给定的数据填充VertexBlockHeader并更新相关状态
     vertex_block->fill(order, vertex_id, write_epoch_id, prev_pointer, data.data(), data.size());
-    
-    // 将该顶点标记为已更新状态
+
     graph.compact_table.local().emplace(vertex_id);
-    
-    // 如果是批量更新，则直接更新图中顶点的指针
+
     if (batch_update)
     {
         graph.vertex_ptrs[vertex_id] = pointer;
@@ -137,10 +90,10 @@ void Transaction::put_vertex(vertex_t vertex_id, std::string_view data)
     }
     else
     {
-        // 否则将更新缓存、块缓存和wal日志
         block_cache.emplace_back(pointer, order);
         timestamps_to_update.emplace_back(vertex_block->get_creation_time_pointer(), Graph::ROLLBACK_TOMBSTONE);
         vertex_ptr_cache[vertex_id] = pointer;
+
         ++wal_num_ops();
         wal_append(OPType::PutVertex);
         wal_append(vertex_id);
@@ -453,7 +406,6 @@ void Transaction::put_edge(vertex_t src, label_t label, vertex_t dst, std::strin
             ensure_no_confict(src, label);
             pointer = locate_edge_block(src, label);
             // 将新的edge block的指针添加到缓存中
-            // cancel cache
             edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
     }
@@ -555,7 +507,6 @@ void Transaction::put_edge(vertex_t src, label_t label, vertex_t dst, std::strin
     }
     else
     {
-        // cancel cache
         edge_ptr_cache[std::make_pair(src, label)] = pointer;
         ++wal_num_ops();
         wal_append(OPType::PutEdge);
@@ -592,7 +543,6 @@ bool Transaction::del_edge(vertex_t src, label_t label, vertex_t dst)
         {
             ensure_no_confict(src, label);
             pointer = locate_edge_block(src, label);
-            // cancel cache
             edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
     }
@@ -620,9 +570,7 @@ bool Transaction::del_edge(vertex_t src, label_t label, vertex_t dst)
     }
     else
     {
-        // cancel cache
         edge_ptr_cache[std::make_pair(src, label)] = pointer;
-
         // make sure commit will change committed_time
         set_num_entries_data_length_cache(edge_block, num_entries, data_length);
 
@@ -661,8 +609,7 @@ std::string_view Transaction::get_edge(vertex_t src, label_t label, vertex_t dst
         else
         {
             pointer = locate_edge_block(src, label);
-            // cancel cache
-            edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
+            // edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
     }
 
@@ -727,8 +674,7 @@ EdgeIterator Transaction::get_edges(vertex_t src, label_t label, bool reverse)
         else
         {
             pointer = locate_edge_block(src, label);
-            // cancel cache
-            edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
+            // edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
     }
 
@@ -826,7 +772,6 @@ void Transaction::put_edge_with_version(vertex_t src, label_t label, vertex_t ds
             ensure_no_confict(src, label);
             pointer = locate_edge_block(src, label);
             // 将新的edge block的指针添加到缓存中
-            // cancel cache
             edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
     }
@@ -848,8 +793,6 @@ void Transaction::put_edge_with_version(vertex_t src, label_t label, vertex_t ds
 
     if (!edge_block || !edge_block->has_space(entry, num_entries, data_length))
     {
-        // std::cout << "not exist or no space" << std::endl;
-
         auto size = sizeof(EdgeBlockHeader) + (1 + num_entries) * sizeof(EdgeEntry) + data_length + entry.get_length();
         auto order = size_to_order(size);
 
@@ -903,9 +846,6 @@ void Transaction::put_edge_with_version(vertex_t src, label_t label, vertex_t ds
                 data += entries->get_length();
             }
         }
-        // else{
-        //     std::cout << "edge block not exist" << std::endl;
-        // }
 
         if (batch_update)
             update_edge_label_block(src, label, new_pointer);
@@ -941,7 +881,6 @@ void Transaction::put_edge_with_version(vertex_t src, label_t label, vertex_t ds
     }
     else
     {
-        // cancel cache
         edge_ptr_cache[std::make_pair(src, label)] = pointer;
         ++wal_num_ops();
         wal_append(OPType::PutEdge);
@@ -981,10 +920,8 @@ std::vector<std::string_view> Transaction::get_edge_with_version(vertex_t src, l
         else
         {
             pointer = locate_edge_block(src, label);
-            // cancel cache
-            edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
+            // edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
-        // pointer = locate_edge_block(src, label);
     }
 
     auto edge_block = graph.block_manager.convert<EdgeBlockHeader>(pointer);
@@ -1052,10 +989,6 @@ Transaction::find_edge_with_version(vertex_t dst, EdgeBlockHeader *edge_block, s
 // EdgeIterator Transaction::get_edges(vertex_t src, label_t label, bool reverse)
 EdgeIteratorVersion Transaction::get_edges_with_version(vertex_t src, label_t label, timestamp_t start, timestamp_t end, bool reverse)
 {
-    // std::clock_t start_time = std::clock();
-
-
-    
     check_valid();
 
     if (src >= graph.vertex_id.load(std::memory_order_relaxed))
@@ -1064,12 +997,11 @@ EdgeIteratorVersion Transaction::get_edges_with_version(vertex_t src, label_t la
     uintptr_t pointer;
     if (batch_update || !trace_cache)
     {
-
         pointer = locate_edge_block(src, label);
-
     }
     else
     {
+        // pointer = locate_edge_block(src, label);
         auto cache_iter = edge_ptr_cache.find(std::make_pair(src, label));
         if (cache_iter != edge_ptr_cache.end())
         {
@@ -1078,10 +1010,8 @@ EdgeIteratorVersion Transaction::get_edges_with_version(vertex_t src, label_t la
         else
         {
             pointer = locate_edge_block(src, label);
-            // cancel cache
-            edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
+            // edge_ptr_cache.emplace_hint(cache_iter, std::make_pair(src, label), pointer);
         }
-        // pointer = locate_edge_block(src, label);
     }
 
     auto edge_block = graph.block_manager.convert<EdgeBlockHeader>(pointer);
@@ -1091,21 +1021,6 @@ EdgeIteratorVersion Transaction::get_edges_with_version(vertex_t src, label_t la
 
     auto [num_entries, data_length] = get_num_entries_data_length_cache(edge_block);
 
-
-    // std::clock_t end_time = std::clock();
-    // double elapsed_time = static_cast<double>(end_time - start_time) / CLOCKS_PER_SEC * 1000;
-    // std::cout << "part time:" << elapsed_time << std::endl;
-
     return EdgeIteratorVersion(edge_block->get_entries(), edge_block->get_data(), num_entries, data_length, read_epoch_id,
                         local_txn_id, start, end, reverse);
-}
-
-void Transaction::count_size(vertex_t max_vertex_id) {
-    // std::cout << "size of edge_label_ptrs: " << sizeof(graph.edge_label_ptrs) / 1024 << " KB" << std::endl;
-    // std::cout << "size of edge_ptr_cache: " << sizeof(edge_ptr_cache) / 1024 << " KB" << std::endl;
-    // std::cout << "size of vertex_ptrs: " << sizeof(graph.vertex_ptrs) / 1024 << " KB" << std::endl;
-    std::cout << "size of edge_label_ptrs: " << max_vertex_id * sizeof(graph.edge_label_ptrs) << " Bytes" << std::endl;
-    size_t edge_ptr_cache_size = sizeof(std::map<std::pair<vertex_t, label_t>, uintptr_t>) + edge_ptr_cache.size() * (sizeof(std::pair<vertex_t, label_t>) + sizeof(uintptr_t));
-    std::cout << "size of edge_ptr_cache: " << edge_ptr_cache_size << " Bytes" << std::endl;
-    std::cout << "size of vertex_ptrs: " << max_vertex_id * sizeof(graph.vertex_ptrs) << " Bytes" << std::endl;
 }

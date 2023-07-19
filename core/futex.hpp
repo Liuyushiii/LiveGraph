@@ -25,6 +25,7 @@
 
 namespace livegraph
 {
+    /// @brief 这里的 Futex 类实现了一个互斥锁，其主要方法包括 lock()、try_lock_for() 和 unlock()，分别用于加锁、等待超时后尝试加锁以及解锁。
     class Futex
     {
     public:
